@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Robot/Robot.csproj" />
+  <Project Path="WpfApp1/WpfApp1.csproj" Id="e26636ef-4f6a-414f-9af0-701706d1238c" />
+</Solution>

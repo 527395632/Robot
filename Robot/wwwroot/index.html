@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Robot 桌面软件</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { height: 100%; }
+        body {
+            font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+            display: flex; flex-direction: column;
+            background: #f3f4f6; color: #1f2937;
+            overflow: hidden;
+        }
+        /* 标题栏: 无边框窗口的拖动区 */
+        #titlebar {
+            height: 40px; flex: 0 0 40px;
+            display: flex; align-items: center;
+            background: #111827; color: #e5e7eb;
+            user-select: none; cursor: default;
+        }
+        #titlebar .title {
+            flex: 1; padding: 0 14px; font-size: 13px; letter-spacing: .5px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .winbtns { display: flex; height: 100%; }
+        .winbtn {
+            width: 46px; height: 100%; border: 0; background: transparent;
+            color: #e5e7eb; font-size: 14px; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .winbtn:hover { background: #374151; }
+        .winbtn.close:hover { background: #e11d48; color: #fff; }
+        /* 内容区 */
+        #content { flex: 1; padding: 32px; overflow: auto; }
+        .card {
+            background: #fff; border-radius: 10px; padding: 28px 32px;
+            box-shadow: 0 1px 3px rgba(0,0,0,.08); max-width: 720px;
+        }
+        .card h1 { font-size: 22px; margin-bottom: 12px; }
+        .card p { line-height: 1.8; color: #4b5563; margin-bottom: 10px; }
+        .badge {
+            display: inline-block; padding: 3px 12px; border-radius: 999px;
+            background: #eef2ff; color: #4338ca; font-size: 13px; font-weight: 600;
+        }
+        ul { margin: 8px 0 8px 20px; color: #4b5563; line-height: 1.9; }
+    </style>
+</head>
+<body>
+    <!-- 标题栏: 可拖动; 按钮使用 host-command 属性触发窗口控制 -->
+    <div id="titlebar">
+        <div class="title">Robot 桌面软件</div>
+        <div class="winbtns">
+            <!-- 顺序: 全屏 · 最小化 · (最大化|还原) · 关闭; 最大化/还原互斥同槽, Windows 风格 SVG -->
+            <button id="btn-fs" class="winbtn" host-command="fullscreen" title="全屏">&#x26F6;</button>
+            <button id="btn-min" class="winbtn" host-command="minimize" title="最小化">&#8212;</button>
+            <button id="btn-max" class="winbtn" host-command="maximize" title="最大化">
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1" stroke-linejoin="round" aria-hidden="true"><rect x="0.5" y="0.5" width="9" height="9"/></svg>
+            </button>
+            <button id="btn-restore" class="winbtn" host-command="restore" title="还原">
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1" stroke-linejoin="round" aria-hidden="true"><rect x="0.5" y="2.5" width="6.5" height="6.5"/><path d="M3 0.5 h6.5 v6.5"/></svg>
+            </button>
+            <button id="btn-exitfs" class="winbtn" host-command="restore" title="退出全屏">&#x26F6;</button>
+            <button id="btn-close" class="winbtn close" host-command="close" title="关闭">&#10005;</button>
+        </div>
+    </div>
+
+    <div id="content">
+        <div class="card">
+            <h1>Robot 桌面软件 <span class="badge" id="state">normal</span></h1>
+            <p>基于 Robot 框架构建, 命名空间为 <code>Robot.*</code>。</p>
+            <p>当前窗口能力:</p>
+            <ul>
+                <li>最大化 / 最小化 / 还原 / 关闭 / 全屏 —— 顶部标题栏按钮</li>
+                <li>窗口四周及四角支持调整大小 —— 将鼠标移到窗口边缘/角落拖动</li>
+                <li>标题栏可拖动 —— 按住标题栏空白处拖动以移动窗口</li>
+            </ul>
+            <p>当前窗口状态: <b id="state2">normal</b>(由 <code>hostwindowstatechanged</code> 事件实时更新)。</p>
+        </div>
+    </div>
+
+    <script>
+        // 标题栏拖动移动窗口(无边框窗口需要自实现)
+        (function () {
+            const titlebar = document.getElementById('titlebar');
+            let dragging = false, start = null;
+
+            titlebar.addEventListener('mousedown', (e) => {
+                if (e.button !== 0) return;
+                if (e.target.closest('.winbtn')) return; // 点在控制按钮上不拖动
+                dragging = true;
+                const loc = host.hostWindow.location;
+                start = { mx: e.screenX, my: e.screenY, x: loc.x, y: loc.y };
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (!dragging) return;
+                const nx = start.x + (e.screenX - start.mx);
+                const ny = start.y + (e.screenY - start.my);
+                host.hostWindow.moveTo(nx, ny);
+            });
+
+            document.addEventListener('mouseup', () => { dragging = false; });
+        })();
+
+        // 标题栏按钮按窗口状态显隐:
+        //   - 最大化 / 还原 互斥 (同一按钮, 按状态切换)
+        //   - 最大化状态仅显示 [还原][关闭]
+        //   - 其余状态显示 [最小化][最大化][全屏][关闭]
+        (function () {
+            const btn = {
+                min: document.getElementById('btn-min'),
+                max: document.getElementById('btn-max'),
+                restore: document.getElementById('btn-restore'),
+                exitfs: document.getElementById('btn-exitfs'),
+                fs: document.getElementById('btn-fs')
+            };
+
+            function applyWindowState(state) {
+                const maximized = state === 'maximized';
+                const fullscreen = state === 'fullscreen';
+                const collapsed = maximized || fullscreen;
+                // 最小化 / 最大化 / 全屏按钮: 仅 normal/minimized 显示
+                btn.min.style.display = collapsed ? 'none' : '';
+                btn.max.style.display = collapsed ? 'none' : '';
+                btn.fs.style.display = collapsed ? 'none' : '';
+                // 还原按钮: 仅最大化状态; 退出全屏按钮: 仅全屏状态
+                btn.restore.style.display = maximized ? '' : 'none';
+                btn.exitfs.style.display = fullscreen ? '' : 'none';
+                // 关闭按钮始终显示
+            }
+
+            function readNativeState() {
+                try {
+                    const s = host.hostWindow.windowState;
+                    return (s && s.toLowerCase()) || 'normal';
+                } catch (_) { return 'normal'; }
+            }
+
+            function updateStateDisplay(state) {
+                const el1 = document.getElementById('state');
+                const el2 = document.getElementById('state2');
+                if (el1) el1.textContent = state;
+                if (el2) el2.textContent = state;
+            }
+
+            let last = null;
+            // 以原生 windowState 为准 (其 getter 会判定 IsFullscreen); 事件仅作触发点, 不信任事件携带的 state
+            function sync() {
+                const s = readNativeState();
+                if (s === last) return;
+                last = s;
+                applyWindowState(s);
+                updateStateDisplay(s);
+            }
+
+            sync();
+            // 状态事件触发时重读原生状态
+            document.addEventListener('hostwindowstatechanged', sync);
+            // 兜底轮询: 进/出全屏可能不产生 hostwindowstatechanged 事件, 定期用原生状态校正
+            setInterval(sync, 150);
+        })();
+    </script>
+</body>
+</html>
